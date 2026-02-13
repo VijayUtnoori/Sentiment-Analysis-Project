@@ -1,0 +1,134 @@
+/* ================= GLOBAL ================= */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+
+    /* Background image for full page */
+    background-image: url("../images/back.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+/* ================= NAVBAR ================= */
+.custom-navbar {
+    background: #ffffff;
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 40px;
+}
+
+.logo {
+    height: 50px;
+    width: auto;
+}
+
+.nav-btn {
+    background: #0d6efd;
+    color: white;
+    text-decoration: none;
+    margin-left: 14px;
+    padding: 8px 26px;
+    font-size: 16px;
+    border-radius: 25px;
+    transition: all 0.3s ease;
+}
+
+.nav-btn:hover {
+    background: #084298;
+}
+
+/* ================= HERO SECTION ================= */
+.hero {
+    min-height: 100vh;   /* Full screen hero */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+/* ================= HERO BOX ================= */
+.hero-box {
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+
+    padding: 55px;
+    border-radius: 28px;
+
+    width: 70%;
+    max-width: 950px;
+    text-align: center;
+}
+
+/* ================= START BUTTON ================= */
+.start-btn {
+    background: #0d6efd;
+    color: white;
+    border-radius: 50px;
+    padding: 12px 40px;
+    font-size: 18px;
+    border: none;
+}
+
+/* ================= ARROW ================= */
+.arrow-down {
+    font-size: 30px;
+    animation: bounce 1.5s infinite;
+}
+
+@keyframes bounce {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(10px); }
+    100% { transform: translateY(0); }
+}
+
+/* ================= FEATURES SECTION ================= */
+.features-section {
+    background: transparent;
+    margin-top: -60px;   /* Smaller float */
+    position: relative;
+    z-index: 5;
+    padding-bottom: 80px;
+}
+
+
+/* Floating rectangle box */
+.feature-wrapper {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 60px 40px;   /* More top-bottom space */
+    border-radius: 30px;
+    box-shadow: 0 25px 40px rgba(0,0,0,0.18);
+}
+
+
+.feature-box {
+    background: #ffffff;        /* Pure white card */
+    padding: 30px;
+    border-radius: 20px;
+
+    box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+
+    transition: all 0.3s ease;
+    height: 100%;
+}
+
+.feature-box:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+}
+
+
+/* ================= MOBILE ================= */
+@media (max-width: 768px) {
+    .hero-box {
+        width: 90%;
+        padding: 35px;
+    }
+
+    .features-section {
+        margin-top: -60px;
+    }
+}
