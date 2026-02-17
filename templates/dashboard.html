@@ -17,7 +17,7 @@
 
     <nav class="bg-[#1e3a8a] text-white p-3 px-6 flex justify-between items-center shadow-md relative z-10">
     
-    <!-- ✅ FIX 3: Correct Logo Path -->
+    <!--  FIX 3: Correct Logo Path -->
     <div class="flex items-center space-x-2">
         <!-- If logo is inside static/images/logo.png -->
         <img src="{{ url_for('static', filename='images/logo.png') }}" 
@@ -25,27 +25,28 @@
              class="h-12 w-auto object-contain">
     </div>
 
-    <!-- ✅ FIX 2: Dynamic Active Navbar -->
+    <!--  FIX 2: Dynamic Active Navbar -->
     <div class="flex items-center space-x-8">
-        <a href="/history"
-           class="hover:text-blue-200 transition pb-1 border-b-2 
-           {{ 'border-white' if request.path == '/history' else 'border-transparent' }}">
-           History
-        </a>
+        <a href="{{ url_for('history') }}"
+   class="hover:text-blue-200 transition pb-1 border-b-2 
+   {{ 'border-white' if request.path == url_for('history') else 'border-transparent' }}">
+   History
+</a>
+  <a href="{{ url_for('instructions') }}"
+   class="hover:text-blue-200 transition pb-1 border-b-2 
+   {{ 'border-white' if request.path == url_for('instructions') else 'border-transparent' }}">
+   Instructions
+</a>
 
-        <a href="/instructions"
-           class="hover:text-blue-200 transition pb-1 border-b-2 
-           {{ 'border-white' if request.path == '/instructions' else 'border-transparent' }}">
-           Instructions
-        </a>
 
-        <a href="/upload"
-           class="hover:text-blue-200 transition pb-1 border-b-2 
-           {{ 'border-white' if request.path == '/upload' else 'border-transparent' }}">
-           Upload File
-        </a>
 
-        <!-- ✅ FIX 1: Fully Dynamic User Avatar -->
+        <a href="{{ url_for('trends') }}"
+   class="hover:text-blue-200 transition pb-1 border-b-2 
+   {{ 'border-white' if request.path == url_for('trends') else 'border-transparent' }}">
+   Trends
+</a>
+
+        <!--  FIX 1: Fully Dynamic User Avatar -->
         <div class="relative">
             <button @click="userDropdown = !userDropdown"
                 class="flex items-center bg-[#3b82f6] hover:bg-blue-500 rounded-full p-1 pr-3 transition focus:outline-none">
@@ -100,13 +101,21 @@
                 </ol>
             </div>
             <div class="sidebar-card p-4">
-                <div class="flex items-center text-blue-900 font-bold mb-4"><i class="fas fa-folder-open mr-2"></i> Upload File</div>
-                <button class="w-full bg-[#2563eb] text-white py-2 rounded-md hover:bg-blue-700 transition">Go to File Upload</button>
-            </div>
+    <div class="flex items-center text-blue-900 font-bold mb-4">
+        <i class="fas fa-folder-open mr-2"></i> Upload File
+    </div>
+
+    <a href="/upload"
+       class="block text-center w-full bg-[#2563eb] text-white py-2 rounded-md hover:bg-blue-700 transition">
+        Go to File Upload
+    </a>
+
+</div>
+
         </aside>
 
         <main class="w-full md:w-3/4 bg-white rounded-lg shadow-lg p-8 min-h-[500px] flex flex-col items-center">
-            <h2 class="text-3xl font-bold text-gray-800 mb-8">Enter Your Sentiment</h2>
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">Enter Your Sentiment In English Only</h2>
             <div class="w-full max-w-2xl">
                 <textarea id="user-input" placeholder="Type your sentiment here..." class="w-full h-32 p-4 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none resize-none text-lg"></textarea>
                 <button onclick="analyzeSentiment()" class="w-full mt-4 bg-[#2563eb] text-white text-xl font-bold py-3 rounded-lg hover:bg-blue-700 shadow-lg transition">Analyze</button>
@@ -137,17 +146,82 @@
     </footer>
 
     <script>
-        function analyzeSentiment() {
-            // Simplified for now - connect this to your DistilBERT fetch() later
-            const input = document.getElementById('user-input').value;
-            if(!input) return;
-            const res = document.getElementById('result-section');
-            res.classList.remove('hidden');
-            res.innerHTML = `<div class="bg-green-500 p-6 rounded-xl text-white text-left flex items-center space-x-6">
-                <div class="bg-white rounded-full p-2"><i class="fas fa-smile text-green-500 text-5xl"></i></div>
-                <div><p class="text-2xl font-bold">Sentiment: Positive</p><p class="opacity-80 font-bold">Confidence: 98%</p></div>
-            </div>`;
-        }
+       async function analyzeSentiment() {
+
+    const input = document.getElementById('user-input').value;
+
+    if (!input.trim()) {
+    alert("Please enter text");
+    return;
+}
+   const resSection = document.getElementById('result-section');
+
+    resSection.classList.remove('hidden');
+    resSection.innerHTML = `
+<div class="text-center text-blue-600 font-bold flex items-center justify-center gap-2">
+    <i class="fas fa-spinner fa-spin"></i>
+    Analyzing sentiment...
+</div>`;
+
+    //Force spinner visible for at least 1.2 seconds
+     await new Promise(resolve => setTimeout(resolve, 1200));
+     const response = await fetch("/predict", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            text: input
+        })
+    });
+
+    const result = await response.json();
+
+    // Handle error
+    if (result.error) {
+        resSection.innerHTML = `
+        <div class="bg-red-500 text-white p-4 rounded-lg">
+            Error: ${result.error}
+        </div>`;
+        return;
+    }
+
+    let bgColor, iconColor;
+
+    if (result.color === "green") {
+        bgColor = "bg-green-500";
+        iconColor = "text-green-500";
+    }
+    else if (result.color === "red") {
+        bgColor = "bg-red-500";
+        iconColor = "text-red-500";
+    }
+    else {
+        bgColor = "bg-yellow-500";
+        iconColor = "text-yellow-500";
+    }
+
+    resSection.innerHTML = `
+    <div class="${bgColor} p-6 rounded-xl text-white text-left flex items-center space-x-6">
+
+        <div class="bg-white rounded-full p-2">
+            <i class="fas ${result.icon} ${iconColor} text-5xl"></i>
+        </div>
+
+        <div>
+            <p class="text-2xl font-bold">
+                Sentiment: ${result.sentiment}
+            </p>
+
+            <p class="opacity-90 font-bold">
+                Confidence: ${result.confidence}%
+                Polarity: ${result.polarity}
+            </p>
+        </div>
+
+    </div>`;
+}
+
     </script>
 </body>
 </html>

@@ -1,9 +1,15 @@
 # import necessary libraries
-from flask import Flask, render_template, request, redirect, url_for, flash,session
+from flask import Flask, render_template, request, redirect, url_for, flash,session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
 import os
+import csv
+import io
+#import model related 
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+import torch.nn.functional as F
 #creating flask app and secret key
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "sentimodel_key_for_session")
@@ -13,7 +19,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 #intializing database
 db = SQLAlchemy(app)
-
+#load model 
+model_path="best_sentiment_best2_model"
+tokenizer=AutoTokenizer.from_pretrained(model_path)
+model=AutoModelForSequenceClassification.from_pretrained(model_path)
+# device config
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+model.eval()
+NEUTRAL_THRESHOLD = 0.75
 # Database Model(user table)
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -24,6 +38,44 @@ class User(db.Model):
 # Create DB automatically,Creates users.db,Creates "user" table if not exists,
 with app.app_context():
     db.create_all()
+# Sentiment Prediction Function, takes text input and returns sentiment, confidence, color, and icon
+def predict_sentiment(text):
+
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    probabilities = F.softmax(outputs.logits, dim=1)
+    negative_score = probabilities[0][0].item()
+    positive_score = probabilities[0][1].item()
+    predicted_class = torch.argmax(probabilities).item()
+    confidence = torch.max(probabilities).item()
+    # polarity score (-1 to +1)
+    polarity_score = round(positive_score - negative_score, 3)
+    confidence_percent = round(confidence * 100, 2)
+
+    if confidence < NEUTRAL_THRESHOLD:
+
+        sentiment = "Neutral"
+        color = "yellow"
+        icon = "fa-meh"
+
+    elif predicted_class == 1:
+
+        sentiment = "Positive"
+        color = "green"
+        icon = "fa-smile"
+
+    else:
+
+        sentiment = "Negative"
+        color = "red"
+        icon = "fa-frown"
+    # return statement 
+    return sentiment, confidence_percent, color, icon, polarity_score  
 
 # Home Routes
 @app.route("/")
@@ -113,6 +165,51 @@ def dashboard():
         flash("Please login first","error")
         return redirect(url_for("login"))
     return render_template("dashboard.html")
+# History route
+@app.route("/history")
+def history():
+    if "user_id" not in session:
+        flash("Please login first", "error")
+        return redirect(url_for("login"))
+    return render_template("history.html")
+
+
+# Trends route
+@app.route("/trends")
+def trends():
+    if "user_id" not in session:
+        flash("Please login first", "error")
+        return redirect(url_for("login"))
+    return render_template("trends.html")
+
+
+# model prediction route, accepts POST request with text data and returns sentiment analysis results in JSON format
+@app.route("/predict", methods=["POST"])
+def predict():
+
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+
+        data = request.get_json()
+        text = data.get("text")
+
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+
+        sentiment, confidence, color, icon, polarity = predict_sentiment(text)
+        return jsonify({
+            "sentiment": sentiment,
+            "confidence": confidence,
+            "color": color,
+            "icon": icon,
+            "polarity": polarity
+        })
+
+    except Exception as e:
+
+        return jsonify({"error": str(e)}), 500
 
 # logout route 
 @app.route("/logout")
@@ -120,7 +217,83 @@ def logout():
     session.clear()
     flash("Logged out successfully","success")
     return redirect(url_for("login"))
+# upload route
+@app.route('/upload')
+def upload():
+    return render_template('upload.html')
+# instructions route
+@app.route('/instructions')
+def instructions():
+    return render_template('instructions.html')
+# upload and analyze route, accepts POST request with CSV file, processes each row, and returns analysis results in JSON format
+@app.route('/upload_analyze',methods=['POST'])
+def upload_analyze():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}),401
+    file=request.files.get("file")
+    if not file:
+        return jsonify ({"error": "No file uploaded"}),400
+    # handle file size limit (5MB)
+    if file.content_length and file.content_length >5*1024*1024:
+        return jsonify({"error": "File size exceeds 5MB limit"}),400
+    filename=file.filename.lower()
+    texts=[]
+    # red txt file
+    if filename.endswith('.txt'):
+        content=file.read().decode('utf-8')
+        lines=content.splitlines()
+        for line in lines:
+            if line.strip():
+                texts.append(line.strip())
+    # read csv file
+    elif filename.endswith('.csv'):
+        content=file.read().decode('utf-8')
+        reader=csv.reader(io.StringIO(content))
+        for row in reader:
+            if row and row[0].strip():
+                texts.append(row[0].strip())
+    else:
+        return jsonify({"error": "invalid file format"}),400
+    #check if file is empty
+    if len(texts)==0:
+        return jsonify({"error":"file is empty"}),400
+    # statistics variable assing
+    total=len(texts)
+    positive=0
+    negative=0
+    neutral=0
+
+    conf_90_100=0
+    conf_80_90=0
+    conf_70_80=0
+    # run model on each text and calculate statistics
+    for text in texts:
+        sentiment,confidence,color,icon,polarity=predict_sentiment(text)
+        if sentiment=="Positive":
+            positive+=1
+        elif sentiment=="Negative":
+            negative+=1
+        else:
+            neutral+=1
+    # confidence distribution
+        if confidence>=90:
+            conf_90_100+=1
+        elif confidence>=80:
+            conf_80_90+=1
+        else:
+            conf_70_80+=1
+    # result send to forntend
+    return jsonify({
+        "total":total,
+        "positive":positive,
+        "negative":negative,
+        "neutral": neutral,
+        "confidence": {
+            "90_100":conf_90_100,
+            "80_90":conf_80_90,
+            "70_80":conf_70_80 }})
 #Running the app in debug mode
 if __name__ == "__main__":
     app.run(debug=True)
+
 
