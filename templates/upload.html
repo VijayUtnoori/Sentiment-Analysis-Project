@@ -12,60 +12,79 @@
 
 
     <!-- Title -->
-    <h3 class="mb-4">Upload File for Sentiment Analysis</h3>
+<h3 class="mb-4">
+    {% if history_record %}
+        File Analysis Result
+    {% else %}
+        Upload File for Sentiment Analysis
+    {% endif %}
+</h3>
 
-    <!-- Upload Card -->
-    <div class="card p-4 mb-4">
-        <!--JavaScript needs this id to read the selected file-->
-        <input type="file" id="file-input" class="form-control mb-2">
+{% if not history_record %}
+<!-- Upload Card -->
+<div class="card p-4 mb-4">
+    <input type="file" id="file-input" class="form-control mb-2">
 
-        <small class="text-muted">
-            Allowed formats: CSV, TXT<br>
-            Max size: 5MB
-        </small>
+    <small class="text-muted">
+        Allowed formats: CSV, TXT<br>
+        Max size: 5MB
+    </small>
 
-        <!-- Error message -->
-        <div id="error-msg" class="text-danger mt-2"></div>
-        <!--This calls your JavaScript function to send file to Flask-->
-        <button onclick="uploadFile()" class="btn btn-primary mt-3 w-100">
-            Analyze
-        </button>
+    <div id="error-msg" class="text-danger mt-2"></div>
 
-    </div>
+    <button onclick="uploadFile()" class="btn btn-primary mt-3 w-100">
+        Analyze
+    </button>
+</div>
+{% endif %}
+
    <!-- Results Card  Positive,negative and neutral-->
-    <div class="card p-4">
-          <h4>Results</h4>
-           <div class="row text-center mt-3">
-             <div class="col-6 col-md-3 mb-2">
-                <div class="bg-dark text-white p-2 rounded">
-                    Total<br><span id="total">0</span>
-                </div>
-            </div>
-            <div class="col-6 col-md-3 mb-2">
-                <div class="bg-success text-white p-2 rounded">
-                    Positive<br><span id="positive">0</span>
-                </div>
-            </div>
-            <div class="col-6 col-md-3 mb-2">
-                <div class="bg-danger text-white p-2 rounded">
-                    Negative<br><span id="negative">0</span> <!--JavaScript updates these dynamically-->
-                </div>
-            </div>
-            <div class="col-6 col-md-3 mb-2">
-                <div class="bg-warning p-2 rounded">
-                    Neutral<br><span id="neutral">0</span> <!--JavaScript updates these dynamically-->
-                </div>
-            </div>
+   <!-- Results Card -->
+<div class="card p-4 position-relative" id="results-section">
 
+    <h4>Results</h4>
+
+    <div class="row text-center mt-3">
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-dark text-white p-2 rounded">
+                Total<br><span id="total">0</span>
+            </div>
         </div>
 
-        <!-- Graph Area -->
-      <div id="graph-area" class="border rounded mt-4 text-muted"
-style="min-height:400px;">
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-success text-white p-2 rounded">
+                Positive<br><span id="positive">0</span>
+            </div>
+        </div>
 
-    Graphs will appear here
-</div>
- </div>
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-danger text-white p-2 rounded">
+                Negative<br><span id="negative">0</span>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-warning p-2 rounded">
+                Neutral<br><span id="neutral">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Graph Area -->
+    <div id="graph-area" class="border rounded mt-4 text-muted"
+         style="min-height:400px;">
+        Graphs will appear here
+    </div>
+
+    <!-- Save Button -->
+    <button onclick="downloadPDF()" 
+        id="saveBtn"
+        class="btn btn-success position-absolute"
+        style="bottom:20px; right:20px; display:none;">
+    Save as PDF
+</button>
+
+
 </div>
 <script>
 
@@ -104,9 +123,11 @@ if(data.error){
     document.getElementById("negative").innerText = data.negative;
     document.getElementById("neutral").innerText = data.neutral;
     // call graph
-    setTimeout(() => {
+ setTimeout(() => {
     showGraphs(data);
 }, 100);
+
+document.getElementById("saveBtn").style.display = "block";
 
 }
 
@@ -121,159 +142,160 @@ function showGraphs(data){
     const neuPercent = ((data.neutral / total) * 100).toFixed(1);
 
     graphArea.innerHTML = `
-
-<div class="card mb-5 p-4 text-start">
-
-    <h5 class="fw-bold mb-2">Sentiment Distribution (Pie Chart)</h5>
-
-    <p class="text-muted mb-3">
-        Shows percentage distribution of Positive, Negative, and Neutral sentiments.
-    </p>
-
-    <div style="height:400px">
-        <canvas id="pieChart"></canvas>
+    <div class="card mb-5 p-4 text-start">
+        <h5 class="fw-bold mb-2">Sentiment Distribution (Pie Chart)</h5>
+        <p class="text-muted mb-3">
+            Shows percentage distribution of Positive, Negative, and Neutral sentiments.
+        </p>
+        <div style="height:250px">
+            <canvas id="pieChart"></canvas>
+        </div>
     </div>
 
-</div>
-
-
-<div class="card mb-5 p-4 text-start">
-
-    <h5 class="fw-bold mb-2">Sentiment Count Comparison (Bar Chart)</h5>
-
-    <p class="text-muted mb-3">
-        Compares total number of Positive, Negative, and Neutral sentences.
-    </p>
-
-    <div style="height:400px">
-        <canvas id="barChart"></canvas>
+    <div class="card mb-5 p-4 text-start">
+        <h5 class="fw-bold mb-2">Sentiment Count Comparison (Bar Chart)</h5>
+        <p class="text-muted mb-3">
+            Compares total number of Positive, Negative, and Neutral sentences.
+        </p>
+        <div style="height:250px">
+            <canvas id="barChart"></canvas>
+        </div>
     </div>
 
-</div>
-
-
-<div class="card mb-5 p-4 text-start">
-
-    <h5 class="fw-bold mb-2">Confidence Distribution Histogram</h5>
-
-    <p class="text-muted mb-3">
-        Shows how confident the model is in its predictions.
-    </p>
-
-    <div style="height:400px">
-        <canvas id="histChart"></canvas>
+    <div class="card mb-5 p-4 text-start">
+        <h5 class="fw-bold mb-2">Confidence Distribution Histogram</h5>
+        <p class="text-muted mb-3">
+            Shows how confident the model is in its predictions.
+        </p>
+        <div style="height:250px">
+            <canvas id="histChart"></canvas>
+        </div>
     </div>
+    `;
 
-</div>
-
-`;
-
-
-
+    // PIE
     new Chart(document.getElementById("pieChart"), {
-
         type: "pie",
-
         data: {
-
             labels: [
                 `Positive (${posPercent}%)`,
                 `Negative (${negPercent}%)`,
                 `Neutral (${neuPercent}%)`
             ],
-
             datasets: [{
                 data: [data.positive, data.negative, data.neutral],
                 backgroundColor: ["#198754", "#dc3545", "#ffc107"]
             }]
         },
-
         options: {
             plugins: {
-                legend: {
-                    position: "bottom"
-                }
+                legend: { position: "bottom" }
             }
         }
     });
 
-
-
+    // BAR
     new Chart(document.getElementById("barChart"), {
-
         type: "bar",
-
         data: {
-
             labels: ["Positive", "Negative", "Neutral"],
-
             datasets: [{
                 label: "Number of sentences",
                 data: [data.positive, data.negative, data.neutral],
                 backgroundColor: ["#198754", "#dc3545", "#ffc107"]
             }]
         },
-
         options: {
-
-            plugins: {
-                legend: {
-                    display: false
-                }
-            },
-
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
         }
     });
 
-
-
+    // HISTOGRAM
     new Chart(document.getElementById("histChart"), {
-
         type: "bar",
-
         data: {
-
             labels: ["90–100%", "80–90%", "70–80%"],
-
             datasets: [{
-
                 label: "Confidence",
-
                 data: [
                     data.confidence["90_100"],
                     data.confidence["80_90"],
                     data.confidence["70_80"]
                 ],
-
                 backgroundColor: ["#0d6efd", "#fd7e14", "#198754"]
             }]
         },
-
         options: {
-
-            plugins: {
-                legend: {
-                    display: false
-                }
-            },
-
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
         }
     });
-
 }
+function downloadPDF() {
 
+    const element = document.getElementById("results-section");
+    const button = document.getElementById("saveBtn");
 
+    // Hide button before PDF
+    button.style.display = "none";
+
+    let userFileName = prompt("Enter file name:", "Sentiment_Report");
+    if (!userFileName) {
+        userFileName = "Sentiment_Report";
+    }
+
+    const opt = {
+        margin: 0,
+        filename: userFileName + ".pdf",
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: { 
+            scale: 2,
+            scrollY: 0
+        },
+        jsPDF: { 
+            unit: 'mm', 
+            format: 'a4', 
+            orientation: 'portrait' 
+        },
+        pagebreak: { mode: ['avoid-all'] }
+    };
+
+    html2pdf().set(opt).from(element).save().then(() => {
+
+        // Restore button
+        button.style.display = "block";
+
+    });
+}
 </script>
 
+{% if history_record %}
+<script>
+
+    const historyData = {
+        total: {{ history_record.positive_count + history_record.negative_count + history_record.neutral_count }},
+        positive: {{ history_record.positive_count }},
+        negative: {{ history_record.negative_count }},
+        neutral: {{ history_record.neutral_count }},
+        confidence: {
+            "90_100": {{ history_record.conf_90_100 or 0 }},
+            "80_90": {{ history_record.conf_80_90 or 0 }},
+            "70_80": {{ history_record.conf_70_80 or 0 }}
+        }
+    };
+
+    document.getElementById("total").innerText = historyData.total;
+    document.getElementById("positive").innerText = historyData.positive;
+    document.getElementById("negative").innerText = historyData.negative;
+    document.getElementById("neutral").innerText = historyData.neutral;
+
+    showGraphs(historyData);
+    document.getElementById("saveBtn").style.display = "block";
+
+</script>
+{% endif %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </body>
 </html>

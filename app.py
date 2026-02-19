@@ -6,6 +6,7 @@ import re
 import os
 import csv
 import io
+from datetime import datetime
 #import model related 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
@@ -34,6 +35,24 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
+# Prediction History Table 
+class PredictionHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False)
+    date_time = db.Column(db.String(50))
+    type = db.Column(db.String(20))  # text or file
+    input_text = db.Column(db.Text)
+    sentiment = db.Column(db.String(20))
+    confidence = db.Column(db.Float)
+    polarity = db.Column(db.Float)
+    file_name = db.Column(db.String(100))
+    positive_count = db.Column(db.Integer)
+    negative_count = db.Column(db.Integer)
+    neutral_count = db.Column(db.Integer)
+    conf_90_100 = db.Column(db.Integer)
+    conf_80_90 = db.Column(db.Integer) 
+    conf_70_80 = db.Column(db.Integer)
+
 
 # Create DB automatically,Creates users.db,Creates "user" table if not exists,
 with app.app_context():
@@ -171,7 +190,42 @@ def history():
     if "user_id" not in session:
         flash("Please login first", "error")
         return redirect(url_for("login"))
-    return render_template("history.html")
+
+    records = PredictionHistory.query.filter_by(
+        user_id=session["user_id"]
+    ).order_by(PredictionHistory.id.desc()).all()
+
+    return render_template("history.html", records=records)
+# history vew route, shows details of a specific prediction record based on record_id, checks if user is logged in and if record belongs to the user before displaying details
+@app.route("/history/view/<int:record_id>")
+def view_history(record_id):
+
+    if "user_id" not in session:
+        flash("Please login first", "error")
+        return redirect(url_for("login"))
+
+    record = PredictionHistory.query.filter_by(
+        id=record_id,
+        user_id=session["user_id"]
+    ).first()
+
+    if not record:
+        flash("Record not found", "error")
+        return redirect(url_for("history"))
+
+    # If Single Text
+    if record.type == "single":
+        return render_template(
+            "view_single.html",
+            record=record
+        )
+
+    # If File Upload
+    elif record.type == "file":
+        return render_template(
+            "upload.html",
+            history_record=record
+        )
 
 
 # Trends route
@@ -191,7 +245,6 @@ def predict():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-
         data = request.get_json()
         text = data.get("text")
 
@@ -199,6 +252,21 @@ def predict():
             return jsonify({"error": "No text provided"}), 400
 
         sentiment, confidence, color, icon, polarity = predict_sentiment(text)
+
+        #  SAVE SINGLE TEXT RESULT
+        new_record = PredictionHistory(
+            user_id=session["user_id"],
+            date_time=datetime.now().strftime("%d %b %Y %I:%M %p"),
+            type="single",
+            input_text=text,
+            sentiment=sentiment,
+            confidence=confidence,
+            polarity=polarity
+        )
+
+        db.session.add(new_record)
+        db.session.commit()
+
         return jsonify({
             "sentiment": sentiment,
             "confidence": confidence,
@@ -208,8 +276,8 @@ def predict():
         })
 
     except Exception as e:
-
         return jsonify({"error": str(e)}), 500
+
 
 # logout route 
 @app.route("/logout")
@@ -282,7 +350,24 @@ def upload_analyze():
             conf_80_90+=1
         else:
             conf_70_80+=1
-    # result send to forntend
+    #  SAVE FILE ANALYSIS SUMMARY
+    new_record = PredictionHistory(
+        user_id=session["user_id"],
+        date_time=datetime.now().strftime("%d %b %Y %I:%M %p"),
+        type="file",
+        file_name=file.filename,
+        positive_count=positive,
+        negative_count=negative,
+        neutral_count=neutral,
+        conf_90_100=conf_90_100,
+        conf_80_90=conf_80_90,
+        conf_70_80=conf_70_80
+    )
+
+    db.session.add(new_record)
+    db.session.commit()
+
+ # result send to forntend
     return jsonify({
         "total":total,
         "positive":positive,
@@ -292,6 +377,7 @@ def upload_analyze():
             "90_100":conf_90_100,
             "80_90":conf_80_90,
             "70_80":conf_70_80 }})
+
 #Running the app in debug mode
 if __name__ == "__main__":
     app.run(debug=True)
