@@ -86,11 +86,16 @@
 
     <div class="container mx-auto mt-8 px-4 flex flex-col md:flex-row gap-6">
         <aside class="w-full md:w-1/4 space-y-6">
-            <div class="sidebar-card p-4">
-                <div class="flex items-center text-blue-900 font-bold mb-4 border-b pb-2"><i class="fas fa-history mr-2"></i> History</div>
-                <div id="history-container" class="space-y-3 min-h-[50px] text-sm text-gray-500 italic">No recent activity.</div>
-                <a href="#" class="block text-center text-blue-600 text-sm mt-4 font-semibold">View All History ></a>
-            </div>
+           <div class="sidebar-card p-4">
+    <div class="flex items-center text-blue-900 font-bold mb-4 border-b pb-2">
+        <i class="fas fa-address-card mr-2"></i> Contact Information
+    </div>
+
+    <div class="text-sm text-gray-700 space-y-2">
+        <p><strong>Email Id:</strong> abc123@gmail.com</p>
+        <p><strong>Mobile Number:</strong> 9999900000</p>
+    </div>
+    </div>
             <div class="sidebar-card p-4">
                 <div class="flex items-center text-blue-900 font-bold mb-4 border-b pb-2"><i class="fas fa-list-ul mr-2"></i> Instructions</div>
                 <ol class="text-sm text-gray-600 space-y-3">
@@ -136,14 +141,6 @@
             </div>
         </div>
     </div>
-
-    <footer class="mt-12 mb-8 flex justify-center items-center space-x-6 text-gray-500 text-sm">
-        <a href="#">Contact</a><span>|</span><a href="#">Privacy Policy</a><span>|</span>
-        <div class="flex items-center space-x-4">
-            <span>Follow Us ></span>
-            <i class="fab fa-twitter hover:text-blue-400"></i><i class="fab fa-facebook hover:text-blue-600"></i><i class="fab fa-linkedin hover:text-blue-700"></i>
-        </div>
-    </footer>
 
     <script>
        async function analyzeSentiment() {
