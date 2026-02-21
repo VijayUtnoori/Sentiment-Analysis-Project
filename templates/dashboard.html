@@ -45,6 +45,12 @@
    {{ 'border-white' if request.path == url_for('trends') else 'border-transparent' }}">
    Trends
 </a>
+            <a href="{{ url_for('youtube_analysis') }}"
+   class="hover:text-blue-200 transition pb-1 border-b-2 
+   {{ 'border-white' if request.path == url_for('youtube_analysis') else 'border-transparent' }}">
+   Analysis
+</a>
+
 
         <!--  FIX 1: Fully Dynamic User Avatar -->
         <div class="relative">

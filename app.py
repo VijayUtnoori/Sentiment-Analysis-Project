@@ -6,6 +6,13 @@ import re
 import os
 import csv
 import io
+from googleapiclient.errors import HttpError # to show error if youtube api fails
+from googleapiclient.discovery import build
+# to generate wordcloud for youtube comments
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+#api key for youtube data api 
+API_KEY = "your key here"
 from datetime import datetime
 #import model related 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -24,18 +31,19 @@ db = SQLAlchemy(app)
 model_path="best_sentiment_best2_model"
 tokenizer=AutoTokenizer.from_pretrained(model_path)
 model=AutoModelForSequenceClassification.from_pretrained(model_path)
-# device config
+# device config if gpu is avaliable then use it otherwise use cpu
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 model.eval()
+# set neutral threshold set 75%
 NEUTRAL_THRESHOLD = 0.75
-# Database Model(user table)
+# Database Model(user table) this create database table with id,username,email and password 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-# Prediction History Table 
+# Prediction History Table( this table stores the history of predictions mode by user)
 class PredictionHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False)
@@ -54,7 +62,7 @@ class PredictionHistory(db.Model):
     conf_70_80 = db.Column(db.Integer)
 
 
-# Create DB automatically,Creates users.db,Creates "user" table if not exists,
+# Create DB automatically,Creates users.db,Creates "user" table if not exists
 with app.app_context():
     db.create_all()
 # Sentiment Prediction Function, takes text input and returns sentiment, confidence, color, and icon
@@ -293,6 +301,142 @@ def upload():
 @app.route('/instructions')
 def instructions():
     return render_template('instructions.html')
+#featch only english comments 
+from langdetect import detect
+
+def is_english(text):
+    try:
+        return detect(text) == "en"
+    except:
+        return False
+#feach youtube comments using youtube data api 
+from googleapiclient.errors import HttpError
+
+def fetch_youtube_comments(video_id, max_results=100):
+    try:
+        youtube = build('youtube', 'v3', developerKey=API_KEY)
+
+        request = youtube.commentThreads().list(
+            part="snippet",
+            videoId=video_id,
+            maxResults=100,
+            textFormat="plainText"
+        )
+
+        response = request.execute()
+
+        comments = []
+
+        for item in response.get("items", []):
+            comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
+            comments.append(comment)
+
+        return comments, None
+
+    except HttpError as e:
+        error_message = str(e)
+
+        if "commentsDisabled" in error_message:
+            return None, "Comments can't be fetched for this video."
+
+        elif "videoNotFound" in error_message or "notFound" in error_message:
+            return None, "This link does not exist. Try another one."
+
+        else:
+            return None, "Something went wrong. Please try another video."
+# feach comments
+def extract_video_id(url):
+    import re
+    pattern = r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})"
+    match = re.search(pattern, url)
+    if match:
+        return match.group(1)
+    return None
+def clean_text(text):
+    # Remove URLs
+    text = re.sub(r"http\S+", "", text)
+    # Remove @mentions
+    text = re.sub(r"@\w+", "", text)
+    # Remove emojis and non-ASCII characters
+    text = text.encode("ascii", "ignore").decode()
+    # Remove special characters (keep letters and numbers)
+    text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
+    # Remove extra spaces
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+# this is for youtube analysis page, accepts GET and POST requests, extracts video ID from YouTube link and renders analysis page with video ID for further processing
+@app.route('/youtube_analysis', methods=['GET', 'POST'])
+def youtube_analysis():
+    if "user_id" not in session:
+        flash("Please login first", "error")
+        return redirect(url_for("login"))
+
+    if request.method == 'POST':
+
+        youtube_link = request.form['youtube_link']
+        video_id = extract_video_id(youtube_link)
+
+        if not video_id:
+            flash("Invalid YouTube link", "error")
+            return redirect(url_for("youtube_analysis"))
+
+        all_comments, error = fetch_youtube_comments(video_id)
+
+        if error:
+            flash(error, "error")
+            return redirect(url_for("youtube_analysis"))
+
+        comments = []
+        for comment in all_comments:
+            if is_english(comment):
+                cleaned_comment = clean_text(comment)
+                if cleaned_comment != "":
+                    comments.append(cleaned_comment)
+
+        total_comments = len(comments)
+
+        if total_comments == 0:
+            flash("No English comments found for analysis.", "error")
+            return redirect(url_for("youtube_analysis"))
+
+        # ===== WORD CLOUD =====
+        text_data = " ".join(comments)
+
+        wordcloud = WordCloud(
+            width=800,
+            height=400,
+            background_color='white'
+        ).generate(text_data)
+
+        wordcloud_path = os.path.join("static", "wordcloud.png")
+        wordcloud.to_file(wordcloud_path)
+
+        # ===== SENTIMENT COUNTING =====
+        positive_count = 0
+        negative_count = 0
+        neutral_count = 0
+
+        for comment in comments:
+            sentiment, confidence, color, icon, polarity = predict_sentiment(comment)
+
+            if sentiment == "Positive":
+                positive_count += 1
+            elif sentiment == "Negative":
+                negative_count += 1
+            else:
+                neutral_count += 1
+
+        return render_template(
+            'youtube_analysis.html',
+            video_id=video_id,
+            total=total_comments,
+            positive=positive_count,
+            negative=negative_count,
+            neutral=neutral_count,
+            wordcloud_image="wordcloud.png"
+        )
+
+    return render_template('youtube_analysis.html')
 # upload and analyze route, accepts POST request with CSV file, processes each row, and returns analysis results in JSON format
 @app.route('/upload_analyze',methods=['POST'])
 def upload_analyze():
