@@ -7,16 +7,23 @@ import os
 import csv
 import io
 from googleapiclient.errors import HttpError # to show error if youtube api fails
+# imported to create a service object its act as a client for interacting with google api
 from googleapiclient.discovery import build
-# to generate wordcloud for youtube comments
+# to save and serve word cloud images
+from flask import send_file
+#imported to generate word cloud for youtube comments 
+import matplotlib
+matplotlib.use('Agg')   # Important for Flask + PDF
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 #api key for youtube data api 
-API_KEY = "your key here"
+API_KEY = "you api key here"
+# to handle data and time for prediction history
 from datetime import datetime
 #import model related 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
+#use built-in neural network functions like softmax,sigmoid ect 
 import torch.nn.functional as F
 #creating flask app and secret key
 app = Flask(__name__)
@@ -48,7 +55,7 @@ class PredictionHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, nullable=False)
     date_time = db.Column(db.String(50))
-    type = db.Column(db.String(20))  # text or file
+    type = db.Column(db.String(20))  # text, file or youtube comments
     input_text = db.Column(db.Text)
     sentiment = db.Column(db.String(20))
     confidence = db.Column(db.Float)
@@ -65,7 +72,7 @@ class PredictionHistory(db.Model):
 # Create DB automatically,Creates users.db,Creates "user" table if not exists
 with app.app_context():
     db.create_all()
-# Sentiment Prediction Function, takes text input and returns sentiment, confidence, color, and icon
+#b1 Converts input text to tokens, runs the model, applies softmax, and returns sentiment with confidence and polarity score.
 def predict_sentiment(text):
 
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
@@ -221,18 +228,28 @@ def view_history(record_id):
         flash("Record not found", "error")
         return redirect(url_for("history"))
 
-    # If Single Text
     if record.type == "single":
         return render_template(
             "view_single.html",
             record=record
         )
 
-    # If File Upload
     elif record.type == "file":
         return render_template(
             "upload.html",
             history_record=record
+        )
+
+    elif record.type == "youtube":
+        total = record.positive_count + record.negative_count + record.neutral_count
+
+        return render_template(
+            "view_youtube_history.html",
+            total=total,
+            positive=record.positive_count,
+            negative=record.negative_count,
+            neutral=record.neutral_count,
+            wordcloud_image=record.file_name
         )
 
 
@@ -301,6 +318,9 @@ def upload():
 @app.route('/instructions')
 def instructions():
     return render_template('instructions.html')
+
+
+# YOUTUBE ANALYSIS CODE 
 #featch only english comments 
 from langdetect import detect
 
@@ -311,7 +331,7 @@ def is_english(text):
         return False
 #feach youtube comments using youtube data api 
 from googleapiclient.errors import HttpError
-
+# WE TAKE ONLY 100 COMMENTS
 def fetch_youtube_comments(video_id, max_results=100):
     try:
         youtube = build('youtube', 'v3', developerKey=API_KEY)
@@ -352,6 +372,7 @@ def extract_video_id(url):
     if match:
         return match.group(1)
     return None
+# CLEAN COMMENT TEXT BY REMOVING URLS, MENTIONS, SPECIAL CHARACTERS AND EXTRA SPACES
 def clean_text(text):
     # Remove URLs
     text = re.sub(r"http\S+", "", text)
@@ -407,11 +428,12 @@ def youtube_analysis():
             height=400,
             background_color='white'
         ).generate(text_data)
-
-        wordcloud_path = os.path.join("static", "wordcloud.png")
+        #
+        filename = f"wordcloud_{session['user_id']}_{int(datetime.now().timestamp())}.png"
+        wordcloud_path = os.path.join("static", filename)
         wordcloud.to_file(wordcloud_path)
 
-        # ===== SENTIMENT COUNTING =====
+         #SENTIMENT COUNTING 
         positive_count = 0
         negative_count = 0
         neutral_count = 0
@@ -426,6 +448,21 @@ def youtube_analysis():
             else:
                 neutral_count += 1
 
+        #  SAVE YOUTUBE SUMMARY IN DATABASE 
+        new_record = PredictionHistory(
+            user_id=session["user_id"],
+            date_time=datetime.now().strftime("%d %b %Y %I:%M %p"),
+            type="youtube",
+            input_text=video_id,
+            file_name=filename,   # IMPORTANT
+            positive_count=positive_count,
+            negative_count=negative_count,
+            neutral_count=neutral_count
+)
+
+        db.session.add(new_record)
+        db.session.commit()
+
         return render_template(
             'youtube_analysis.html',
             video_id=video_id,
@@ -433,10 +470,74 @@ def youtube_analysis():
             positive=positive_count,
             negative=negative_count,
             neutral=neutral_count,
-            wordcloud_image="wordcloud.png"
+            wordcloud_image=filename
         )
 
     return render_template('youtube_analysis.html')
+# PDF DOWNLOAD ROUTE FOR YOUTUBE ANALYSIS
+#import libraries for PDF generation and chart creation
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+
+@app.route('/download_pdf', methods=['POST'])
+def download_pdf():
+
+    total = int(request.form.get("total"))
+    positive = int(request.form.get("positive"))
+    negative = int(request.form.get("negative"))
+    neutral = int(request.form.get("neutral"))
+    wordcloud_image = request.form.get("wordcloud_image")
+
+    pdf_filename = f"youtube_report_{int(datetime.now().timestamp())}.pdf"
+    pdf_path = os.path.join("static", pdf_filename)
+
+    #  CREATE PIE CHART IMAGE
+    labels = ['Positive', 'Negative', 'Neutral']
+    sizes = [positive, negative, neutral]
+    colors_list = ['#198754','#dc3545','#ffc107']
+
+    plt.figure(figsize=(4,4))
+    plt.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors_list)
+    plt.title("Sentiment Distribution")
+
+    pie_chart_path = os.path.join("static", "temp_pie_chart.png")
+    plt.savefig(pie_chart_path)
+    plt.close()
+
+    # BUILD PDF 
+    doc = SimpleDocTemplate(pdf_path)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    elements.append(Paragraph("<b>YouTube Sentiment Analysis Report</b>", styles['Title']))
+    elements.append(Spacer(1, 0.5 * inch))
+
+    elements.append(Paragraph(f"Total Comments: {total}", styles['Normal']))
+    elements.append(Paragraph(f"Positive: {positive}", styles['Normal']))
+    elements.append(Paragraph(f"Negative: {negative}", styles['Normal']))
+    elements.append(Paragraph(f"Neutral: {neutral}", styles['Normal']))
+    elements.append(Spacer(1, 0.5 * inch))
+
+    # Add Pie Chart
+    elements.append(Paragraph("<b>Sentiment Distribution</b>", styles['Heading2']))
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(Image(pie_chart_path, width=4*inch, height=4*inch))
+    elements.append(Spacer(1, 0.5 * inch))
+
+    # Add Wordcloud image if exists
+    if wordcloud_image:
+        elements.append(Paragraph("<b>Word Cloud</b>", styles['Heading2']))
+        elements.append(Spacer(1, 0.2 * inch))
+        wc_path = os.path.join("static", wordcloud_image)
+        elements.append(Image(wc_path, width=5*inch, height=3*inch))
+
+    doc.build(elements)
+
+    return send_file(pdf_path, as_attachment=True)
+
+  
 # upload and analyze route, accepts POST request with CSV file, processes each row, and returns analysis results in JSON format
 @app.route('/upload_analyze',methods=['POST'])
 def upload_analyze():
