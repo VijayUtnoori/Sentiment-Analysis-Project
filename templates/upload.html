@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Upload File</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+<div class="container mt-5" style="max-width:1000px;">
+
+
+    <!-- Title -->
+<h3 class="mb-4">
+    {% if history_record %}
+        File Analysis Result
+    {% else %}
+        Upload File for Sentiment Analysis
+    {% endif %}
+</h3>
+
+{% if not history_record %}
+<!-- Upload Card -->
+<div class="card p-4 mb-4">
+    <input type="file" id="file-input" class="form-control mb-2">
+
+    <small class="text-muted">
+        Allowed formats: CSV, TXT<br>
+        Max size: 5MB
+    </small>
+
+    <div id="error-msg" class="text-danger mt-2"></div>
+
+    <button onclick="uploadFile()" class="btn btn-primary mt-3 w-100">
+        Analyze
+    </button>
+</div>
+{% endif %}
+
+   <!-- Results Card  Positive,negative and neutral-->
+   <!-- Results Card -->
+<div class="card p-4 position-relative" id="results-section">
+
+    <h4>Results</h4>
+
+    <div class="row text-center mt-3">
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-dark text-white p-2 rounded">
+                Total<br><span id="total">0</span>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-success text-white p-2 rounded">
+                Positive<br><span id="positive">0</span>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-danger text-white p-2 rounded">
+                Negative<br><span id="negative">0</span>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3 mb-2">
+            <div class="bg-warning p-2 rounded">
+                Neutral<br><span id="neutral">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Graph Area -->
+    <div id="graph-area" class="border rounded mt-4 text-muted"
+         style="min-height:400px;">
+        Graphs will appear here
+    </div>
+
+    <!-- Save Button -->
+    <button onclick="downloadPDF()" 
+        id="saveBtn"
+        class="btn btn-success position-absolute"
+        style="bottom:20px; right:20px; display:none;">
+    Save as PDF
+</button>
+
+
+</div>
+<script>
+
+async function uploadFile(){
+    document.getElementById("error-msg").innerText = "";
+    const fileInput = document.getElementById("file-input");
+const file = fileInput.files[0];
+if(!file){
+    document.getElementById("error-msg").innerText = "Please select file";
+    return;
+}
+const allowedTypes = ["text/plain", "text/csv"];
+if(!allowedTypes.includes(file.type)){
+    document.getElementById("error-msg").innerText =
+    "Only CSV and TXT files are allowed";
+    return;
+}
+     document.getElementById("graph-area").innerHTML =
+     "<div class='text-primary'>Analyzing file, please wait...</div>";
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/upload_analyze", {
+        method: "POST",
+        body: formData
+    });
+
+   const data = await response.json();
+
+if(data.error){
+    document.getElementById("error-msg").innerText = data.error;
+    document.getElementById("graph-area").innerHTML = "Graphs will appear here";
+    return;
+}
+    document.getElementById("total").innerText = data.total;
+    document.getElementById("positive").innerText = data.positive;
+    document.getElementById("negative").innerText = data.negative;
+    document.getElementById("neutral").innerText = data.neutral;
+    // call graph
+ setTimeout(() => {
+    showGraphs(data);
+}, 100);
+
+document.getElementById("saveBtn").style.display = "block";
+
+}
+
+
+function showGraphs(data){
+
+    const graphArea = document.getElementById("graph-area");
+
+    const total = data.total;
+
+    // Safety check for empty data in file upload have no data
+    if(data.total === 0){
+        document.getElementById("graph-area").innerHTML =
+        "<div class='text-danger'>No data found in file</div>";
+        return;
+    }
+    const posPercent = total ? ((data.positive / total) * 100).toFixed(1) : 0;
+    const negPercent = total ? ((data.negative / total) * 100).toFixed(1) : 0;
+    const neuPercent = total ? ((data.neutral / total) * 100).toFixed(1) : 0;
+
+    graphArea.innerHTML = `
+    <div class="card mb-5 p-4 text-start">
+        <h5 class="fw-bold mb-2">Sentiment Distribution (Pie Chart)</h5>
+        <p class="text-muted mb-3">
+            Shows percentage distribution of Positive, Negative, and Neutral sentiments.
+        </p>
+        <div style="height:250px">
+            <canvas id="pieChart"></canvas>
+        </div>
+    </div>
+    <!-- bar chart card -->
+    <div class="card mb-5 p-4 text-start">
+        <h5 class="fw-bold mb-2">Sentiment Count Comparison (Bar Chart)</h5>
+        <p class="text-muted mb-3">
+            Compares total number of Positive, Negative, and Neutral sentences.
+        </p>
+        <div style="height:250px">
+            <canvas id="barChart"></canvas>
+        </div>
+    </div>
+<!-- word cloud card -->
+<div class="card mb-5 p-4 text-start" style="page-break-inside: avoid;">
+    <h5 class="fw-bold mb-2">Word Cloud</h5>
+    <p class="text-muted mb-3">
+        Shows the most frequent words found in the uploaded text.
+    </p>
+
+    <div class="text-center">
+       <img id="wordcloud-img"
+          src=""
+          style="max-width:100%; border-radius:8px;">
+    </div>
+</div>
+    `;
+
+    // PIE
+    new Chart(document.getElementById("pieChart"), {
+        type: "pie",
+        data: {
+            labels: [
+                `Positive (${posPercent}%)`,
+                `Negative (${negPercent}%)`,
+                `Neutral (${neuPercent}%)`
+            ],
+            datasets: [{
+                data: [data.positive, data.negative, data.neutral],
+                backgroundColor: ["#198754", "#dc3545", "#ffc107"]
+            }]
+        },
+        options: {
+            plugins: {
+                legend: { position: "bottom" }
+            }
+        }
+    });
+
+    // BAR
+    new Chart(document.getElementById("barChart"), {
+        type: "bar",
+        data: {
+            labels: ["Positive", "Negative", "Neutral"],
+            datasets: [{
+                label: "Number of sentences",
+                data: [data.positive, data.negative, data.neutral],
+                backgroundColor: ["#198754", "#dc3545", "#ffc107"]
+            }]
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+
+// WORD CLOUD IMAGE
+if(data.wordcloud){
+    document.getElementById("wordcloud-img").src = "/static/" + data.wordcloud;
+}
+}
+</script>
+<script>
+function downloadPDF() {
+
+    const element = document.getElementById("results-section");
+    const button = document.getElementById("saveBtn");
+
+    // Ask user for file name
+    let userFileName = prompt("Enter file name:", "Sentiment_Report");
+
+    // If user clicks Cancel → STOP completely
+    if (userFileName === null) {
+        return;
+    }
+
+    // If empty string → use default name
+    if (userFileName.trim() === "") {
+        userFileName = "Sentiment_Report";
+    }
+
+    // Hide button temporarily
+    button.style.display = "none";
+
+    const opt = {
+        margin: 0,
+        filename: userFileName + ".pdf",
+        image: { type: 'jpeg', quality: 1 },
+        html2canvas: {
+            scale: 2,
+            scrollY: 0
+        },
+        jsPDF: {
+            unit: 'mm',
+            format: 'a4',
+            orientation: 'portrait'
+        }
+    };
+
+    html2pdf().set(opt).from(element).save().then(() => {
+        button.style.display = "block";
+    });
+
+}
+</script>
+
+{% if history_record %}
+<script>
+
+    const historyData = {
+        total: {{ history_record.positive_count + history_record.negative_count + history_record.neutral_count }},
+        positive: {{ history_record.positive_count }},
+        negative: {{ history_record.negative_count }},
+        neutral: {{ history_record.neutral_count }},
+        wordcloud: "{{ history_record.file_name }}",
+        confidence: {
+            "90_100": {{ history_record.conf_90_100 or 0 }},
+            "80_90": {{ history_record.conf_80_90 or 0 }},
+            "70_80": {{ history_record.conf_70_80 or 0 }}
+        }
+    };
+
+    document.getElementById("total").innerText = historyData.total;
+    document.getElementById("positive").innerText = historyData.positive;
+    document.getElementById("negative").innerText = historyData.negative;
+    document.getElementById("neutral").innerText = historyData.neutral;
+
+    showGraphs(historyData);
+    document.getElementById("saveBtn").style.display = "block";
+
+</script>
+{% endif %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</body>
+</html>
