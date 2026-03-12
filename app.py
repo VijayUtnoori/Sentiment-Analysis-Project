@@ -12,6 +12,7 @@ import re
 import os
 import csv
 import io
+import requests
 #remove stop words from word cloud 
 from wordcloud import STOPWORDS
 # to show error if youtube api fails
@@ -31,11 +32,6 @@ load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 # to handle data and time for prediction history table 
 from datetime import datetime
-#import model related libararies 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-#use built-in neural network functions like softmax,sigmoid ect 
-import torch.nn.functional as F
 #creating flask app and secret key
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "sentimodel_key_for_session")
@@ -45,14 +41,6 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 #intializing database
 db = SQLAlchemy(app)
-#load model and set path
-model_name = "uv1234/sentiment-analysis-transformer"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSequenceClassification.from_pretrained(model_name)
-# device config if gpu is avaliable then use it otherwise use cpu
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
 # set neutral threshold set 75%
 NEUTRAL_THRESHOLD = 0.75
 # Database Model(user table) this create database table with id,username,email and password 
@@ -86,43 +74,110 @@ with app.app_context():
 
 
 #(B1) This is your main prediction code, and it is reused everywhere according to requirements
+
+HF_API_URL = "https://api-inference.huggingface.co/models/uv1234/sentiment-analysis-transformer"
+HF_TOKEN = os.getenv("HF_TOKEN")
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+
+# Warmup model when server starts
+try:
+    requests.post(
+        HF_API_URL,
+        headers=headers,
+        json={"inputs": "test"},
+        timeout=30
+    )
+except:
+    pass
+
 def predict_sentiment(text):
 
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+    payload = {"inputs": [text]}   # send as list
 
-    inputs = {key: value.to(device) for key, value in inputs.items()}
+    try:
+        response = requests.post(
+            HF_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
 
-    with torch.no_grad():
-        outputs = model(**inputs)
-    # apply softmax to get probabilities 
-    probabilities = F.softmax(outputs.logits, dim=1)
-    negative_score = probabilities[0][0].item()
-    positive_score = probabilities[0][1].item()
-    predicted_class = torch.argmax(probabilities).item()
-    confidence = torch.max(probabilities).item()
-    # polarity score (-1 to +1)
-    polarity_score = round(positive_score - negative_score, 3)
-    confidence_percent = round(confidence * 100, 2)
+        if response.status_code != 200:
+            return "Neutral", 0, "yellow", "fa-meh", 0
 
-    if confidence < NEUTRAL_THRESHOLD:
+        result = response.json()
 
-        sentiment = "Neutral"
-        color = "yellow"
-        icon = "fa-meh"
+        if isinstance(result, dict) and "error" in result:
+            return "Neutral", 0, "yellow", "fa-meh", 0
 
-    elif predicted_class == 1:
+        scores = result[0]
 
-        sentiment = "Positive"
-        color = "green"
-        icon = "fa-smile"
+        scores_dict = {item['label']: item['score'] for item in scores}
 
-    else:
+        positive = scores_dict.get("POSITIVE", 0)
+        negative = scores_dict.get("NEGATIVE", 0)
 
-        sentiment = "Negative"
-        color = "red"
-        icon = "fa-frown"
-    # return statement 
-    return sentiment, confidence_percent, color, icon, polarity_score  
+        polarity = round(positive - negative, 3)
+        confidence_percent = round(max(positive, negative) * 100, 2)
+
+        if positive > negative:
+            sentiment = "Positive"
+            color = "green"
+            icon = "fa-smile"
+        else:
+            sentiment = "Negative"
+            color = "red"
+            icon = "fa-frown"
+
+        return sentiment, confidence_percent, color, icon, polarity
+
+    except:
+        return "Neutral", 0, "yellow", "fa-meh", 0
+    
+
+def predict_batch(texts):
+
+    payload = {"inputs": texts}
+
+    try:
+        response = requests.post(
+            HF_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return []
+
+        result = response.json()
+
+        predictions = []
+
+        for scores in result:
+
+            scores_dict = {item['label']: item['score'] for item in scores}
+
+            positive = scores_dict.get("POSITIVE", 0)
+            negative = scores_dict.get("NEGATIVE", 0)
+
+            polarity = round(positive - negative, 3)
+            confidence = round(max(positive, negative) * 100, 2)
+
+            if positive > negative:
+                sentiment = "Positive"
+            else:
+                sentiment = "Negative"
+
+            predictions.append((sentiment, confidence, polarity))
+
+        return predictions
+
+    except:
+        return []
+    
 
 #(B2) Home Routes
 @app.route("/")
@@ -343,6 +398,21 @@ def predict():
                 "icon": icon,
                 "polarity": polarity
             })
+        
+        # Check if prediction already exists
+        existing = PredictionHistory.query.filter_by(
+            user_id=session["user_id"],
+            input_text=text
+        ).first()
+
+        if existing:
+            return jsonify({
+                  "sentiment": existing.sentiment,
+                  "confidence": existing.confidence,
+                  "color": "green" if existing.sentiment == "Positive" else "red",
+                  "icon": "fa-smile" if existing.sentiment == "Positive" else "fa-frown",
+                  "polarity": existing.polarity
+        })
 
 
         # Normal prediction using main model
@@ -561,16 +631,23 @@ def youtube_analysis():
         top_negative = []
         top_neutral = []
 
-        # Loop through comments and collect sentiment + confidence
-        for comment in comments:
+        predictions = predict_batch(comments)
 
-            sentiment, confidence, color, icon, polarity = predict_sentiment(comment)
+        if not predictions:
+           flash("Prediction failed. Please try again.", "error")
+           return redirect(url_for("youtube_analysis"))
+
+        for i, comment in enumerate(comments):
+            if i >= len(predictions):
+               break
+
+            sentiment, confidence, polarity = predictions[i]
 
             short_comment = shorten_comment(comment)
 
             if sentiment == "Positive":
-                positive_count += 1
-                top_positive.append((short_comment, confidence))
+               positive_count += 1
+               top_positive.append((short_comment, confidence))
 
             elif sentiment == "Negative":
                 negative_count += 1
