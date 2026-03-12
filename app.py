@@ -12,7 +12,6 @@ import re
 import os
 import csv
 import io
-import requests
 #remove stop words from word cloud 
 from wordcloud import STOPWORDS
 # to show error if youtube api fails
@@ -36,13 +35,26 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "sentimodel_key_for_session")
 
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+
+MODEL_NAME = "uv1234/sentiment-analysis-transformer"
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+
+model.to(device)
+model.eval()
+
 # Database  configaration
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 #intializing database
 db = SQLAlchemy(app)
-# set neutral threshold set 75%
-NEUTRAL_THRESHOLD = 0.75
+# set neutral threshold set 60%
+NEUTRAL_THRESHOLD = 0.60
 # Database Model(user table) this create database table with id,username,email and password 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -75,108 +87,90 @@ with app.app_context():
 
 #(B1) This is your main prediction code, and it is reused everywhere according to requirements
 
-HF_API_URL = "https://api-inference.huggingface.co/models/uv1234/sentiment-analysis-transformer"
-HF_TOKEN = os.getenv("HF_TOKEN")
-headers = {
-    "Authorization": f"Bearer {HF_TOKEN}"
-}
-
-# Warmup model when server starts
-try:
-    requests.post(
-        HF_API_URL,
-        headers=headers,
-        json={"inputs": "test"},
-        timeout=30
-    )
-except:
-    pass
-
 def predict_sentiment(text):
 
-    payload = {"inputs": [text]}   # send as list
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=128
+    ).to(device)
 
-    try:
-        response = requests.post(
-            HF_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-        if response.status_code != 200:
-            return "Neutral", 0, "yellow", "fa-meh", 0
+    probs = torch.nn.functional.softmax(outputs.logits, dim=1)
 
-        result = response.json()
+    confidence, predicted = torch.max(probs, dim=1)
 
-        if isinstance(result, dict) and "error" in result:
-            return "Neutral", 0, "yellow", "fa-meh", 0
+    confidence_value = confidence.item()
+    confidence_percent = round(confidence_value * 100, 2)
 
-        scores = result[0]
+    label = predicted.item()
 
-        scores_dict = {item['label']: item['score'] for item in scores}
+    # Neutral threshold logic
+    if confidence_value < NEUTRAL_THRESHOLD:
+        sentiment = "Neutral"
+        color = "yellow"
+        icon = "fa-meh"
+        polarity = 0
 
-        positive = scores_dict.get("POSITIVE", 0)
-        negative = scores_dict.get("NEGATIVE", 0)
+    elif label == 1:
+        sentiment = "Positive"
+        color = "green"
+        icon = "fa-smile"
+        polarity = confidence_value
 
-        polarity = round(positive - negative, 3)
-        confidence_percent = round(max(positive, negative) * 100, 2)
+    else:
+        sentiment = "Negative"
+        color = "red"
+        icon = "fa-frown"
+        polarity = -confidence_value
 
-        if positive > negative:
-            sentiment = "Positive"
-            color = "green"
-            icon = "fa-smile"
-        else:
-            sentiment = "Negative"
-            color = "red"
-            icon = "fa-frown"
-
-        return sentiment, confidence_percent, color, icon, polarity
-
-    except:
-        return "Neutral", 0, "yellow", "fa-meh", 0
-    
+    return sentiment, confidence_percent, color, icon, polarity
 
 def predict_batch(texts):
 
-    payload = {"inputs": texts}
+    inputs = tokenizer(
+        texts,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=128
+    ).to(device)
 
-    try:
-        response = requests.post(
-            HF_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-        if response.status_code != 200:
-            return []
+    probs = torch.nn.functional.softmax(outputs.logits, dim=1)
 
-        result = response.json()
+    predictions = []
 
-        predictions = []
+    for prob in probs:
 
-        for scores in result:
+        confidence, predicted = torch.max(prob, dim=0)
 
-            scores_dict = {item['label']: item['score'] for item in scores}
+        confidence_value = confidence.item()
+        confidence_percent = round(confidence_value * 100, 2)
 
-            positive = scores_dict.get("POSITIVE", 0)
-            negative = scores_dict.get("NEGATIVE", 0)
+        label = predicted.item()
 
-            polarity = round(positive - negative, 3)
-            confidence = round(max(positive, negative) * 100, 2)
+        if confidence_value < NEUTRAL_THRESHOLD:
+            sentiment = "Neutral"
+            polarity = 0
 
-            if positive > negative:
-                sentiment = "Positive"
-            else:
-                sentiment = "Negative"
+        elif label == 1:
+            sentiment = "Positive"
+            polarity = confidence_value
 
-            predictions.append((sentiment, confidence, polarity))
+        else:
+            sentiment = "Negative"
+            polarity = -confidence_value
 
-        return predictions
+        predictions.append((sentiment, confidence_percent, polarity))
 
-    except:
-        return []
+    return predictions
     
 
 #(B2) Home Routes

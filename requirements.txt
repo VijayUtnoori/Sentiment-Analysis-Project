@@ -1,12 +1,10 @@
-Flask
-Flask-SQLAlchemy
-gunicorn
-requests
+flask
+flask_sqlalchemy
+torch
+transformers
 python-dotenv
 google-api-python-client
 langdetect
 wordcloud
 matplotlib
 reportlab
-numpy
-pandas
