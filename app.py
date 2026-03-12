@@ -47,6 +47,7 @@ model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
 
 model.to(device)
 model.eval()
+torch.set_grad_enabled(False)
 
 # Database  configaration
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
@@ -147,7 +148,7 @@ def predict_batch(texts):
 
     predictions = []
 
-    for prob in probs:
+    for i, prob in enumerate(probs):
 
         confidence, predicted = torch.max(prob, dim=0)
 
