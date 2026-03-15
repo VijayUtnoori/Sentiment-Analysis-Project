@@ -34,28 +34,22 @@ from datetime import datetime
 #creating flask app and secret key
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "sentimodel_key_for_session")
+import requests
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-MODEL_NAME = "uv1234/sentiment-analysis-transformer"
+API_URL = "https://api-inference.huggingface.co/models/uv1234/sentiment-analysis-transformer"
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
-
-model.to(device)
-model.eval()
-torch.set_grad_enabled(False)
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+NEUTRAL_THRESHOLD = 0.60
 
 # Database  configaration
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 #intializing database
 db = SQLAlchemy(app)
-# set neutral threshold set 60%
-NEUTRAL_THRESHOLD = 0.60
 # Database Model(user table) this create database table with id,username,email and password 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -90,84 +84,73 @@ with app.app_context():
 
 def predict_sentiment(text):
 
-    inputs = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=128
-    ).to(device)
+    payload = {"inputs": text}
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+    response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+    result = response.json()
 
-    probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+    # Handle API error
+    if isinstance(result, dict) and "error" in result:
+        return "Neutral", 0, "yellow", "fa-meh", 0
 
-    confidence, predicted = torch.max(probs, dim=1)
+    label = result[0]["label"]
+    confidence = result[0]["score"]
 
-    confidence_value = confidence.item()
-    confidence_percent = round(confidence_value * 100, 2)
+    confidence_percent = round(confidence * 100, 2)
 
-    label = predicted.item()
-
-    # Neutral threshold logic
-    if confidence_value < NEUTRAL_THRESHOLD:
+    if confidence < NEUTRAL_THRESHOLD:
         sentiment = "Neutral"
         color = "yellow"
         icon = "fa-meh"
         polarity = 0
 
-    elif label == 1:
+    elif label.lower() == "positive":
         sentiment = "Positive"
         color = "green"
         icon = "fa-smile"
-        polarity = confidence_value
+        polarity = confidence
 
     else:
         sentiment = "Negative"
         color = "red"
         icon = "fa-frown"
-        polarity = -confidence_value
+        polarity = -confidence
 
     return sentiment, confidence_percent, color, icon, polarity
 
 def predict_batch(texts):
 
-    inputs = tokenizer(
-        texts,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=128
-    ).to(device)
+    payload = {"inputs": texts}
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+    response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+    results = response.json()
 
-    probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+    if isinstance(results, dict) and "error" in results:
+        return []
 
     predictions = []
 
-    for i, prob in enumerate(probs):
+    for result in results:
 
-        confidence, predicted = torch.max(prob, dim=0)
+        if isinstance(result, list):
+            result = result[0]
 
-        confidence_value = confidence.item()
-        confidence_percent = round(confidence_value * 100, 2)
+        label = result["label"]
+        confidence = result["score"]
 
-        label = predicted.item()
+        confidence_percent = round(confidence * 100, 2)
 
-        if confidence_value < NEUTRAL_THRESHOLD:
+        if confidence < NEUTRAL_THRESHOLD:
             sentiment = "Neutral"
             polarity = 0
 
-        elif label == 1:
+        elif label.lower() == "positive":
             sentiment = "Positive"
-            polarity = confidence_value
+            polarity = confidence
 
         else:
             sentiment = "Negative"
-            polarity = -confidence_value
+            polarity = -confidence
 
         predictions.append((sentiment, confidence_percent, polarity))
 
