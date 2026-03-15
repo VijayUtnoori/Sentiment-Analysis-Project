@@ -88,6 +88,7 @@ def predict_sentiment(text):
 
     response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
     result = response.json()
+    print(result)
 
     # Handle API error
     if isinstance(result, dict) and "error" in result:
