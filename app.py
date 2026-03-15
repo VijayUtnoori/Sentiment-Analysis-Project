@@ -38,7 +38,7 @@ import requests
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_URL = "https://api-inference.huggingface.co/models/uv1234/sentiment-analysis-transformer"
+API_URL = "https://router.huggingface.co/hf-inference/models/uv1234/sentiment-analysis-transformer"
 
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}"
@@ -88,7 +88,7 @@ def predict_sentiment(text):
 
     response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
     result = response.json()
-    print(result)
+    print(result)   
 
     # Handle API error
     if isinstance(result, dict) and "error" in result:
