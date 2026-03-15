@@ -93,8 +93,14 @@ def predict_sentiment(text):
     if isinstance(result, dict) and "error" in result:
         return "Neutral", 0, "yellow", "fa-meh", 0
 
-    label = result[0]["label"]
-    confidence = result[0]["score"]
+    # HuggingFace returns list inside list
+    scores = result[0]
+
+    # Pick highest score label
+    best = max(scores, key=lambda x: x["score"])
+
+    label = best["label"]
+    confidence = best["score"]
 
     confidence_percent = round(confidence * 100, 2)
 
@@ -132,11 +138,11 @@ def predict_batch(texts):
 
     for result in results:
 
-        if isinstance(result, list):
-            result = result[0]
+        scores = result
+        best = max(scores, key=lambda x: x["score"])
 
-        label = result["label"]
-        confidence = result["score"]
+        label = best["label"]
+        confidence = best["score"]
 
         confidence_percent = round(confidence * 100, 2)
 
