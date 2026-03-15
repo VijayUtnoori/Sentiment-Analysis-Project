@@ -38,7 +38,7 @@ import requests
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_URL = "https://router.huggingface.co/hf-inference/models/uv1234/sentiment-analysis-transformer"
+API_URL = "https://router.huggingface.co/hf-inference/models/uv1234/sentiment-analysis-transformer?wait_for_model=true"
 
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}"
@@ -86,9 +86,14 @@ def predict_sentiment(text):
 
     payload = {"inputs": text}
 
-    response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+    response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+
+    if response.status_code != 200:
+        print("HF ERROR:", response.text)
+        return "Neutral", 0, "yellow", "fa-meh", 0
+
     result = response.json()
-    print(result)   
+    print("HF RESPONSE:", result)  
 
     # Handle API error
     if isinstance(result, dict) and "error" in result:
@@ -129,7 +134,12 @@ def predict_batch(texts):
 
     payload = {"inputs": texts}
 
-    response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+    response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+
+    if response.status_code != 200:
+        print("HF ERROR:", response.text)
+        return []
+
     results = response.json()
 
     if isinstance(results, dict) and "error" in results:
@@ -138,8 +148,10 @@ def predict_batch(texts):
     predictions = []
 
     for result in results:
-
-        scores = result
+        if isinstance(result[0], list):
+            scores = result[0]
+        else:
+            scores = result
         best = max(scores, key=lambda x: x["score"])
 
         label = best["label"]
